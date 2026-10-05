@@ -17,7 +17,16 @@
 
 ## What This Does
 
-PLACEHOLDER_WHAT
+A user types one plain-language request for a secondhand find — "vintage
+graphic tee under $30" or "platform sneakers size 8". FitFindr pulls a
+description, a size and a price ceiling out of that sentence, searches 40 mock
+thrift listings for matches, picks the best one, asks the model how to wear it
+with the clothes already in the user's wardrobe, and then writes a short
+caption they could post about the find. What comes back is three things: the
+listing itself (title, price, platform), an outfit built from pieces they
+already own, and the caption. If nothing in the data matches, it stops after
+the search and says which of the three filters to loosen, rather than styling
+an item it never found.
 
 ---
 
@@ -115,13 +124,160 @@ ends early.
 
 ## Sample Run
 
-PLACEHOLDER_SAMPLE
+**One full query**
+
+```
+$ python app.py ask 'vintage graphic tee under $30'
+
+[1] parse_query
+      in:  vintage graphic tee under $30
+      out: dict with keys: description, size, max_price
+[2] search_listings
+      in:  dict with keys: description, size, max_price
+      out: 10 items: Y2K Baby Tee — Butterfly Print, Graphic Tee — 2003 Tour Bootleg Style, Vintage Band Tee — Faded Grey … +7 more
+[3] select_item
+      in:  10 results
+      out: Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      →    branch: results found, continuing to suggest_outfit
+[4] suggest_outfit
+      in:  Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      out: Pair the butterfly baby tee with the baggy straight-leg dark wash jeans to balance the fitted crop length, add…
+[5] create_fit_card
+      in:  Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      out: My inner early 2000s pop star is currently screaming because I tracked down the ultimate butterfly baby tee on…
+
+  Found:    Y2K Baby Tee — Butterfly Print — $18.0 on depop
+
+  Outfit:   Pair the butterfly baby tee with the baggy straight-leg dark wash jeans to balance the fitted crop length, adding the brown leather belt and chunky white sneakers for an effortless Y2K streetwear look. For a slightly edgier vibe when the weather cools, layer the black cropped zip hoodie unzipped over the tee, keeping the same baggy jeans and finishing the outfit with the black combat boots.
+
+  Fit card: My inner early 2000s pop star is currently screaming because I tracked down the ultimate butterfly baby tee on depop. It is giving major mall tour energy and I only had to shell out $18 for it. Honestly, nobody else is going to look this effortlessly nostalgic today.
+
+1 model calls this session, 1 served from cache, 310 prompt + 60 output tokens
+```
+
+**The same loop on a query the data cannot match** — it stops at step 3, where
+the happy path keeps going to step 5:
+
+```
+$ python app.py ask 'designer ballgown size XXS under $5'
+
+[1] parse_query
+      in:  designer ballgown size XXS under $5
+      out: dict with keys: description, size, max_price
+[2] search_listings
+      in:  dict with keys: description, size, max_price
+      out: [] (empty)
+[3] branch
+      in:  len(session['search_results']) == 0
+      out: Stopped before styling anything: nothing matched "designer ballgown" with the filters I read out of your query…
+      →    branch: empty, stopping before suggest_outfit
+
+  Stopped before styling anything: nothing matched "designer ballgown" with the filters I read out of your query. To get results, raise the $5 ceiling; or drop or widen size XXS; or try the words that are on the listings themselves — the data is tagged vintage, y2k, grunge, streetwear, denim, graphic tee, cargo, flannel, slip dress, platform.
+
+0 model calls this session
+```
+
+Zero model calls on that path, which is the branch working: it stopped before
+`suggest_outfit`, not after it.
+
+**The three tools, tested one at a time**
+
+```
+$ python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
+
+[{'id': 'lst_006', 'title': 'Graphic Tee — 2003 Tour Bootleg Style', 'description':
+'Vintage-style bootleg tee with faded graphic. Slightly boxy fit. 100% cotton, soft
+and worn-in.', 'category': 'tops', 'style_tags': ['graphic tee', 'vintage', 'grunge',
+'streetwear', 'band tee'], 'size': 'L', 'condition': 'good', 'price': 24.0, 'colors':
+['black'], 'brand': None, 'platform': 'depop'}, {'id': 'lst_002', 'title': 'Y2K Baby
+Tee — Butterfly Print', ... }]
+                                            (6 listings, all priced at or under $30)
+
+$ python -c "from tools import search_listings; print(search_listings('designer ballgown', size='XXS', max_price=5))"
+
+[]
+```
+
+```
+$ python -c "from tools import suggest_outfit; from utils.data_loader import get_example_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_example_wardrobe()))"
+
+Tuck the white ribbed tank top into the vintage Levi's 501 jeans, cinched at the
+waist with the brown leather belt. Layer the oversized grey crewneck sweatshirt
+casually over your shoulders and finish the look with the chunky white sneakers for
+an effortless, classic daytime street style. For cooler weather, wear the black
+cropped zip hoodie under the vintage black denim jacket, paired directly with the
+Levi's and the black combat boots to create a textured, edgy silhouette.
+```
+
+Every garment it names is in `data/wardrobe_schema.json` — it isn't inventing
+pieces.
+
+```
+$ python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('jeans and white sneakers', load_listings()[0]))"
+
+Scored these vintage medium wash Levi 501s on depop for just $38 and they fit like
+an absolute dream. The lived-in fade at the knees gives them that effortless
+Saturday morning coffee run energy. Paired with my crispest white sneakers, this is
+officially my uniform for the foreseeable future.
+
+$ python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('   ', load_listings()[0]))"
+
+No outfit suggestion to write a card from — suggest_outfit returned nothing.
+```
+
+Run three times on the same item, the card comes back different each time
+(`TEMPERATURE = 0.9`, and the tool passes `cache=False`). Three consecutive
+opening sentences:
+
+```
+run 1:  Finally cracked the code on finding true vintage denim that actually fits…
+run 2:  Everyone keeps asking me how I find denim that actually hugs the waist…
+run 3:  Some days you just manifest the exact vintage wash you have been hunting for.
+```
 
 ---
 
 ## How I Used AI
 
-PLACEHOLDER_AI
+**Moment 1 — the size filter**
+
+- *What I asked for:* I pasted my `search_listings` spec into Claude with the
+  list of every distinct size string in `data/listings.json` and asked whether
+  a case-insensitive substring test would satisfy the spec line "a request for
+  M should match S/M".
+- *What came back:* It pointed out two cases from that list that break it:
+  `"s" in "us 9"` is `True`, so asking for a small top returns shoes, and
+  `"l" in "xl"` is `True`, so asking for large returns extra-large. It also
+  flagged `"W30 L30"`, where the `L30` is an inseam and would match a request
+  for size L.
+- *What I changed:* I threw out the substring test and wrote `_size_tokens()`
+  in `tools.py`, which splits a size string into whole tokens, drops
+  parentheticals like `(oversized)`, ignores an `L<number>` inseam, and treats
+  anything containing "One Size" as matching everything. Then I wrote the rule
+  into my Tool Inventory, because what counts as a size match is part of the
+  spec and not an implementation detail. `search_listings('platform sneakers',
+  size='8')` now returns exactly the platform sneakers, and
+  `_size_matches('US 9', 'M')` is `False`.
+
+**Moment 2 — attacking my own acceptance criteria**
+
+- *What I asked for:* I pasted all five criteria from `criteria.md` in and
+  asked the question the brief suggests — for each one, tell me exactly how
+  you would test it using only what the sentence says, and don't suggest
+  improvements.
+- *What came back:* It produced a concrete procedure for criteria 1, 2, 3 and
+  5. On criterion 4 it stopped at my phrase "mentions the price": it said it
+  could not tell whether a card reading "snagged it for eighteen dollars"
+  counts, because the number is there but not as a number, so it did not know
+  whether to write the check as a regex for the digits or as a human judgement.
+- *What I changed:* Two things. I made the criterion say "contains the item's
+  price as a number", so the check is a regex and nothing else. Then I ran my
+  own card tool and discovered the ambiguity was real and not hypothetical —
+  it had actually written "eighteen dollars" for the $18 baby tee, which my own
+  regex would have scored as a miss. So I added one clause to the prompt in
+  `create_fit_card`: write the price as a numeral with a dollar sign, not
+  spelled out in words. The criterion got checkable and the tool got fixed, and
+  I would not have found the second one without tightening the first.
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
