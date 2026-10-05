@@ -5,157 +5,123 @@
 > **New to this repo? Read [RUNNING.md](RUNNING.md) first** — setup, every
 > command, and what to do when something breaks.
 >
-> Once `python test.py` passes:
->
 > ```bash
-> python app.py listings --full -n 6      # read the data (Milestone 1)
+> python app.py listings --full -n 6      # read the data
 > python app.py fields                    # what you can filter on
 > python app.py ask 'vintage graphic tee under $30'
 > ```
->
-> All three tools are stubs, so that last command will do nothing useful yet.
-> That's the starting position.
->
-> **The rest of this file is your submission.** Fill it in as you go.
 
 ---
-
-<!-- ─────────────────────────────────────────────────────────────────────────
-     HOW TO USE THIS FILE
-
-     This is your submission. Fill each section in as you finish the milestone
-     it belongs to — don't leave it all to the end.
-
-     Unit 3 asks for the first five sections. Unit 4 adds the five below them.
-     Leave the unit 4 sections alone until then; they're here so you know
-     what's coming.
-
-     Everything is pasted as TEXT. No screenshots, no images, no video links.
-     A typed block of output gets full credit; a picture of the same output
-     gets none.
-     ───────────────────────────────────────────────────────────────────────── -->
 
 <!-- ═══════════════════════ UNIT 3 — THE BUILD ═══════════════════════ -->
 
 ## What This Does
 
-<!-- Three or four sentences: what a user asks for, and what they get back. -->
-
-
+PLACEHOLDER_WHAT
 
 ---
 
 ## Tool Inventory
 
-<!-- Four lines per tool. This is worth 2 points and it's the single most
-     common place students lose them.
-
-     "Returns a list" earns NOTHING. The description has to say what is IN
-     the list.
-
-     The empty case isn't optional either — it's the thing your loop branches
-     on, and if you don't decide it here you'll discover it as a crash in
-     Milestone 5. -->
-
 ### `search_listings`
 
-- **What it does:**
-- **Inputs:** <!-- name and type each: `max_price` (float), not "a price" -->
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Filters the 40 mock thrift listings down to the ones that
+  match a plain-language description, and optionally a size and a price
+  ceiling, ranked best match first.
+- **Inputs:**
+  - `description` (`str`) — keywords, e.g. `"vintage graphic tee"`. Required.
+  - `size` (`str | None`) — a size string such as `"M"`, `"8"`, `"W30"`, or
+    `None` to skip size filtering.
+  - `max_price` (`float | None`) — inclusive price ceiling, or `None` to skip
+    price filtering.
+- **Returns:** A `list[dict]` of at most `config.SEARCH_RESULT_LIMIT` (10)
+  listing dicts, sorted by keyword score descending, ties broken by lower
+  price. Every dict is a whole listing record, unmodified, with the keys
+  `id` (str), `title` (str), `description` (str), `category` (str),
+  `style_tags` (list[str]), `size` (str), `condition` (str), `price` (float),
+  `colors` (list[str]), `brand` (str **or None**), `platform` (str).
+- **When it has nothing:** Returns `[]` — an empty list. Never `None`, never a
+  raise. This is the value the loop branches on.
+
+**My size-match rule** (part of the spec, because a plain substring test is
+wrong on this data — `"s" in "us 9"` is `True` and `"l" in "xl"` is `True`):
+each size string is split into tokens, and a listing matches only on a whole
+token. `"S/M"` → `{S, M}`; `"XL (oversized)"` → `{XL}` (parentheticals are
+dropped); `"W30 L30"` → `{W30}` (the inseam is ignored); `"US 8.5"` →
+`{US 8.5}`; anything containing `"One Size"` → `{ONE SIZE}`, which matches any
+requested size. A request for `M` therefore matches `M`, `M/L`, `S/M` and
+`One Size`, and does **not** match `XL` or `US 9`.
 
 ### `suggest_outfit`
 
-- **What it does:**
+- **What it does:** Asks the model how to wear one thrifted item, naming pieces
+  the user already owns when it can.
 - **Inputs:**
-- **Returns:**
-- **When it has nothing:**
+  - `new_item` (`dict`) — one listing dict, the shape above.
+  - `wardrobe` (`dict`) — a wardrobe dict with an `items` key holding a
+    `list[dict]`; each item has `id`, `name`, `category`, `colors`,
+    `style_tags`, `notes`. The list may be empty.
+- **Returns:** A non-empty `str` — one or two outfit ideas, plain prose, each
+  naming specific garments.
+- **When it has nothing:** If `wardrobe["items"]` is empty, it still returns a
+  non-empty `str`: general styling advice for the item (what kind of bottom,
+  shoe and layer to pair it with) instead of named wardrobe pieces. If
+  `new_item` is falsy it returns `""` and the caller must not proceed. If the
+  model cannot be reached, `generate()` raises `ModelUnavailable`, which
+  `run_agent` catches.
 
 ### `create_fit_card`
 
-- **What it does:**
+- **What it does:** Turns the outfit suggestion into a short caption someone
+  would actually post about the find.
 - **Inputs:**
-- **Returns:**
-- **When it has nothing:**
+  - `outfit` (`str`) — the string `suggest_outfit` returned.
+  - `new_item` (`dict`) — the same listing dict.
+- **Returns:** A `str` of two to four sentences that names the item, its price
+  once and its platform once, and varies between runs (`TEMPERATURE = 0.9`,
+  and the tool passes `cache=False` so repeat runs are real calls).
+- **When it has nothing:** If `outfit` is empty or whitespace-only, it returns
+  the fixed string
+  `"No outfit suggestion to write a card from — suggest_outfit returned nothing."`
+  rather than raising, and makes no model call.
 
 ---
 
 ## Planning Loop
 
-<!-- Your branch rule, stated as a rule — the condition AND both paths — plus
-     the file and function that holds it.
-
-     Like this:
-       "If search_listings returns an empty list, put a message in the session
-        and stop. Otherwise take the first result and go to suggest_outfit."
-        — agent.py::run_agent
-
-     The grader checks your code against what you claim here, so the file and
-     function have to be real. -->
-
-**Branch rule:**
+**Branch rule:** If `search_listings` returns an empty list, put a message in
+`session["error"]` naming what the user could change — the price ceiling, the
+size, or the words — and return the session immediately, leaving
+`session["fit_card"]` as `None`. Otherwise take the first result, put it in
+`session["selected_item"]`, and go on to `suggest_outfit`.
 
 **Where it lives:** `agent.py::run_agent`
 
-**How the query is parsed:** <!-- regex, string splitting, or asking the model — say which -->
+**How the query is parsed:** regex, in `agent.py::parse_query`. One pattern
+pulls a price ceiling (`under $30`, `below 30`, `$30 or less`, a bare `$30`),
+one pulls a size (`size M`, `size 8`, `in a medium`, `sz L`), and the matched
+spans are stripped out of the string; what is left, minus a few filler words
+(`looking`, `for`, `a`, `in`), becomes the description.
 
-**What moves through the session:** <!-- which fields, in what order -->
+**What moves through the session:** in this order —
+`query` → `parsed` (`{description, size, max_price}`) → `search_results`
+(the list from `search_listings`) → `selected_item` (`search_results[0]`) →
+`outfit_suggestion` → `fit_card`. Each step writes its result into the session
+and the next step reads its input back **out** of the session; no value is
+passed directly from one call to the next. `error` is set only when the run
+ends early.
 
 ---
 
 ## Sample Run
 
-<!-- Two things go here.
-
-     1. One FULL query and its output, pasted as text.
-     2. Your three per-tool terminal tests — the command and what it printed. -->
-
-**One full query**
-
-```
-$ python app.py ask '...'
-
-```
-
-**The three tools, tested one at a time**
-
-```
-$ python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
-
-```
-
-```
-$ python -c "from tools import suggest_outfit; ..."
-
-```
-
-```
-$ python -c "from tools import create_fit_card; ..."
-
-```
+PLACEHOLDER_SAMPLE
 
 ---
 
 ## How I Used AI
 
-<!-- Two specific moments. What you asked, what came back, what you changed.
-
-     "I used Claude to help me code" is not enough.
-
-     "I gave Claude my search_listings spec. It returned None on no match
-     instead of an empty list, so I changed it" is the level we want. -->
-
-**Moment 1**
-
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
-
-**Moment 2**
-
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+PLACEHOLDER_AI
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
