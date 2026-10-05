@@ -3,20 +3,6 @@
 Five criteria that say what "working" means for this agent, written in unit 3
 **before** any results existed.
 
-An acceptance criterion names a target: a number, a count, a rate, or something
-a person could plainly observe. *"The agent handles errors"* is an opinion.
-*"When search returns nothing, the agent stops before calling the second tool,
-in 5 of 5 tries"* is a criterion.
-
-Under each one, write a sentence or two on **why that target** and not a
-stricter one. A reason that says something about your tools, your loop, or the
-data earns credit; *"80% seemed reasonable"* does not.
-
-> Missing your own targets next unit costs you nothing. Setting a target so
-> easy you can't miss it does.
-
-**Two are written for you. You write three.**
-
 ---
 
 ## 1. A matching query completes all three tools
@@ -24,10 +10,14 @@ data earns credit; *"80% seemed reasonable"* does not.
 Given a query that matches at least one listing, the agent completes all three
 tool calls and returns a fit card — in at least 4 of 5 tries.
 
-**Why this target:**
-<!-- Why 4 of 5 and not 5 of 5? Something about your search, probably —
-     "my search is a plain keyword match and some phrasings will miss" is a
-     real answer. -->
+**Why this target:** My search is keyword overlap against the title,
+description, style tags, category and colors — there is no synonym handling at
+all. "Tee" scores against the `graphic tee` style tag, but a phrasing like
+"band shirt" or "going-out top" has no token in common with anything in the
+file, so some reasonable queries return `[]` and stop at the branch. 4 of 5
+leaves room for one phrasing my tokenizer cannot reach. I did not go to 3 of 5
+because the five queries `python app.py examples` prints are all phrased with
+words that do appear in the data, so most of them should land.
 
 ---
 
@@ -36,67 +26,73 @@ tool calls and returns a fit card — in at least 4 of 5 tries.
 Given a query that matches no listings, the agent stops before calling
 `suggest_outfit` and returns a message naming what to change — 5 of 5 tries.
 
-**Why this target:**
-<!-- Why is 5 of 5 reasonable here when criterion 1 isn't? What's different
-     about this path? -->
+**Why this target:** This path touches no model at all. `search_listings` is
+pure Python over a 40-row JSON file, the branch is one `if not
+session["search_results"]`, and the message is a formatted string built from
+the parsed query. Nothing in it can vary between runs — no temperature, no
+network, no cache. A deterministic path that fails even once is a logic bug,
+not variance, so anything below 5 of 5 would mean the branch is simply wrong.
 
 ---
 
 ## 3. Something about state
 
-<!-- YOU WRITE THIS ONE.
+For 5 different matching queries, `session["selected_item"]["id"]` equals the
+`id` of the item that `suggest_outfit` actually received, and that same `id`
+appears in `session["search_results"][0]` — 5 of 5 tries. I check it by having
+`run_agent` record the `id` of the dict it hands to each model tool in
+`session["handoff_ids"]`, then comparing the three ids after the run:
+`search_results[0]["id"]`, `selected_item["id"]`, and
+`handoff_ids["suggest_outfit"]` must be the same string.
 
-     How would you know that the item your search found is the same item the
-     next tool received? Name something countable or observable.
-
-     This is the criterion people find hardest, because state failure doesn't
-     look like state failure — it looks like a tool problem. Something that
-     compares session["selected_item"] against what actually reached
-     suggest_outfit is the shape you're after. -->
-
-
-
-**Why this target:**
-
-
+**Why this target:** This is a pure-Python identity check on dictionary keys,
+so there is nothing to be probabilistic about — either the loop reads the item
+back out of the session or it doesn't. 5 of 5. The reason it is worth writing
+down at all is that a state mix-up does not look like a state bug: if the loop
+re-sorted or re-searched between steps, the fit card would simply describe a
+different jacket than the one printed as "Found:", and I would spend an hour
+blaming the prompt. Recording the handoff id makes the failure visible in one
+comparison.
 
 ---
 
 ## 4. Something about the fit card
 
-<!-- YOU WRITE THIS ONE.
+Across 5 runs of `create_fit_card` on the **same** item with caching off, all
+5 cards (a) contain the item's price as a number and the platform name, (b) are
+between 2 and 4 sentences, and (c) have 5 distinct opening sentences. I will
+accept 5 of 5 on (a) and (b), and 4 of 5 distinct on (c).
 
-     The fit card calls a model, so the same input can produce different words
-     each time. That's not a bug — it's the nature of the tool. So what would
-     make it acceptable?
-
-     Think about what you'd actually be unhappy to see. A caption that never
-     mentions the price? Two different items producing the same opening
-     sentence? A card longer than a caption anyone would post? Any of those can
-     be turned into a number. -->
-
-
-
-**Why this target:**
-
-
+**Why this target:** (a) and (b) are things I put in the prompt as explicit
+instructions and can check with a regex and a sentence split, so a miss is a
+prompt problem I can fix — I hold those at 5 of 5. (c) is the part I cannot
+control: at `TEMPERATURE = 0.9` the model is free to open two of five cards the
+same way, especially on a short caption where "Found this" is an obvious first
+move. Demanding 5 distinct openings would be demanding something about the
+model's sampling rather than about my code, so I allow one collision. If two
+*different* items ever produced the same opening sentence I would call that a
+template and a real failure, which is why the criterion is about the same item
+— the harder case.
 
 ---
 
-## 5. Your choice
+## 5. Your choice — the price ceiling is never violated
 
-<!-- YOU WRITE THIS ONE TOO.
+For every query containing a price ceiling, every listing in
+`session["search_results"]` has `price <= max_price`, and `max_price` as parsed
+matches the number the user typed — across 5 queries with ceilings of $20,
+$30, $40, $50 and $25, that's 5 of 5 queries with zero over-ceiling results.
 
-     Pick something you actually care about getting right. Speed, the empty
-     wardrobe path, what happens when the model can't be reached, whether the
-     search respects a price ceiling — anything, as long as it names a number
-     or an observable outcome. -->
-
-
-
-**Why this target:**
-
-
+**Why this target:** This is the one failure a user would notice immediately
+and never forgive — being shown a $120 coat after asking for one under $50
+makes the whole thing untrustworthy, in a way that a mediocre caption does not.
+It is also two deterministic pieces: a regex that extracts the number, and one
+`<=` comparison in the filter. Both are testable without the model, so 5 of 5
+is the only honest target. I included the parse in the criterion rather than
+only the filter because the quiet failure here is not a broken comparison —
+it's `max_price` coming back as `None` because my regex missed the phrasing,
+and then the filter correctly applies no ceiling at all and every result looks
+fine.
 
 ---
 
