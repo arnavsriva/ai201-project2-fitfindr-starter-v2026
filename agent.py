@@ -19,6 +19,7 @@ import config
 import trace
 from tools import search_listings, suggest_outfit, create_fit_card
 from generate import ModelUnavailable
+from mcp_client import MCPError, call_tool
 
 
 # ── session state ─────────────────────────────────────────────────────────────
@@ -43,6 +44,9 @@ def new_session(query: str, wardrobe: dict) -> dict:
         # criterion 3 in criteria.md compares against selected_item, so a state
         # mix-up shows up as a mismatched string instead of a confusing caption.
         "handoff_ids": {},
+        # "mcp" when the search went over the MCP server, or a note saying why
+        # it fell back to the in-process call.
+        "search_transport": None,
     }
 
 
@@ -132,6 +136,40 @@ def _no_results_message(parsed: dict) -> str:
     )
 
 
+# ── the search call, now over MCP ─────────────────────────────────────────────
+
+def _search_over_mcp(parsed: dict) -> tuple[list[dict], str]:
+    """
+    Call search_listings through the MCP server instead of importing it.
+
+    The direct call is kept as a fallback: if the server can't be reached the
+    run degrades to the in-process tool rather than dying, and the session
+    records which path was taken so the trace never lies about it.
+
+    Returns:
+        (results, transport) where transport is "mcp" or "direct (mcp failed)".
+    """
+    arguments = {
+        "description": parsed["description"],
+        "size": parsed["size"],
+        "max_price": parsed["max_price"],
+    }
+    try:
+        results = call_tool("search_listings", arguments)
+    except MCPError as exc:
+        print(f"  [mcp] unreachable, falling back to the direct call: {exc}")
+        return search_listings(**arguments), "direct (mcp failed)"
+
+    # The promise is that the return value does not change shape. Check it,
+    # rather than assume it — a tool that started returning a JSON string
+    # instead of a list would break every branch below silently.
+    if not isinstance(results, list):
+        print(f"  [mcp] returned {type(results).__name__}, not a list — using the direct call")
+        return search_listings(**arguments), "direct (mcp returned wrong shape)"
+
+    return results, "mcp"
+
+
 # ── planning loop ─────────────────────────────────────────────────────────────
 
 def run_agent(query: str, wardrobe: dict) -> dict:
@@ -176,15 +214,14 @@ def run_agent(query: str, wardrobe: dict) -> dict:
         steps += 1
         trace.check_iterations(steps)
         parsed = session["parsed"]
-        session["search_results"] = search_listings(
-            description=parsed["description"],
-            size=parsed["size"],
-            max_price=parsed["max_price"],
-        )
+        results, transport = _search_over_mcp(parsed)
+        session["search_results"] = results
+        session["search_transport"] = transport
         trace.step(
-            "search_listings",
+            f"search_listings via {transport}",
             inputs=parsed,
             returned=session["search_results"],
+            note="MCP tool call — mcp_server.py::search_listings",
         )
 
         # ── THE BRANCH ────────────────────────────────────────────────────────
