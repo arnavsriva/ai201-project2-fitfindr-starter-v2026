@@ -288,7 +288,9 @@ _CARD_SYSTEM = (
     "You write short social captions about thrift finds. Two to four "
     "sentences, first person, the voice of someone pleased with themselves. "
     "No hashtags, no lists, no markdown, no quotation marks around the whole "
-    "caption. Mention the price once and the platform once, naturally."
+    "caption. Name the price exactly once and the platform exactly once. "
+    "THE PRICE IS ALWAYS WRITTEN AS DIGITS WITH A DOLLAR SIGN — $18, $42 — "
+    "never spelled out in words, never 'thirty dollars'."
 )
 
 NO_OUTFIT_MESSAGE = (
@@ -324,9 +326,9 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
         f"{_describe_item(new_item)}\n\n"
         "How it's being styled:\n"
         f"{str(outfit).strip()}\n\n"
-        f"The caption must say the price (${_money(new_item.get('price'))}) "
-        f"once, written as a numeral with a dollar sign (not spelled out in "
-        f"words), and say it was found/bought on {new_item.get('platform')} once "
+        f"The caption must contain the exact string "
+        f"\"${_money(new_item.get('price'))}\" once, and say it was "
+        f"found/bought on {new_item.get('platform')} once "
         f"— that is where it came from, not somewhere it is being resold. "
         "Be specific "
         "about the vibe rather than describing the garment like a product "
