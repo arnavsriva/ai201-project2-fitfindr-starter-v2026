@@ -53,10 +53,16 @@ SCENARIOS = [
         "criterion": 4,
     },
     {
-        # A tight ceiling. Criterion 5 checks every listing in
-        # search_results against it, plus that max_price parsed as 20.0.
+        # Criterion 5 checks every listing in search_results against the
+        # ceiling, plus that max_price parsed as the number typed.
+        #
+        # This started out as "denim jacket under $20" and passed vacuously:
+        # the cheapest denim jacket in the data is $42, so the search returned
+        # nothing and there were zero prices to compare. $50 returns seven
+        # listings, four of which the ceiling has to keep out, so the check
+        # actually runs. The target did not move — the test stopped being empty.
         "name": "price ceiling is never violated",
-        "query": "denim jacket under $20",
+        "query": "denim jacket under $50",
         "wardrobe": "example",
         "criterion": 5,
     },

@@ -33,8 +33,64 @@ import datetime as dt
 import sys
 import traceback
 
+import re
+
 import config
 import scenarios as scenario_module
+
+
+def evidence(session: dict) -> list[str]:
+    """
+    The observable facts my five criteria are written about, printed per try.
+
+    These are measurements, not verdicts — the PASS/FAIL call is still mine to
+    make. They are here because three of my criteria are about things the
+    default report doesn't show: which transport the search ran over, whether
+    the item that reached suggest_outfit is the item in selected_item, and
+    whether the card contains the price as a numeral.
+    """
+    results = session.get("search_results") or []
+    parsed = session.get("parsed") or {}
+    item = session.get("selected_item") or {}
+    card = session.get("fit_card") or ""
+
+    lines = [
+        f"- search_transport: {session.get('search_transport')}",
+        f"- parsed: {parsed}",
+    ]
+
+    # criterion 3 — state handoff
+    first_id = results[0].get("id") if results else None
+    lines.append(
+        f"- ids: search_results[0]={first_id} selected_item={item.get('id')} "
+        f"handoff_ids={session.get('handoff_ids')}"
+    )
+
+    # criterion 5 — the price ceiling
+    ceiling = parsed.get("max_price")
+    if ceiling is not None:
+        prices = [r.get("price") for r in results]
+        over = [p for p in prices if p is not None and p > ceiling]
+        lines.append(
+            f"- ceiling: max_price={ceiling} results={len(results)} "
+            f"highest_price={max(prices) if prices else None} over_ceiling={len(over)}"
+        )
+
+    # criterion 4 — the fit card
+    if card:
+        sentences = [p for p in re.split(r"(?<=[.!?])\s+", card.strip()) if p]
+        price = item.get("price")
+        numeral = bool(
+            price is not None
+            and re.search(rf"\$\s*{re.escape(f'{float(price):g}')}\b", card)
+        )
+        lines.append(
+            f"- card: sentences={len(sentences)} price_as_numeral={numeral} "
+            f"platform_named={str(item.get('platform', '')).lower() in card.lower()}"
+        )
+        lines.append(f"- card opening: {sentences[0] if sentences else ''}")
+
+    return lines
 
 
 def run_once(scenario, use_trace=True):
@@ -191,6 +247,7 @@ def write_report(rows, args):
                 f"- selected_item: {item.get('title', '(none)')}"
                 + (f" (${item.get('price')}, {item.get('platform')})" if item else ""),
                 f"- search_results: {len(session.get('search_results') or [])}",
+                *evidence(session),
                 "",
             ]
             if session.get("outfit_suggestion"):
