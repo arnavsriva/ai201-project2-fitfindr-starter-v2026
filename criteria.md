@@ -94,6 +94,14 @@ it's `max_price` coming back as `None` because my regex missed the phrasing,
 and then the filter correctly applies no ceiling at all and every result looks
 fine.
 
+> **Measurement note, unit 4:** the target is unchanged, but the scenario
+> testing it moved from "denim jacket under $20" to "denim jacket under $50".
+> Under $20 the search returned nothing — the cheapest denim jacket in the data
+> is $42 — so "no result over the ceiling" was true with zero prices to
+> compare, and the criterion passed vacuously. At $50 the search returns seven
+> listings and the ceiling has to exclude four. That makes the test harder, not
+> easier; the 5-of-5 target stayed where it was and was met.
+
 ---
 
 <!-- ─────────────────────────────────────────────────────────────────────────
