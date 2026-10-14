@@ -198,11 +198,13 @@ def run_agent(query: str, wardrobe: dict) -> dict:
     """
     session = new_session(query, wardrobe)
     steps = 0
+    stage = "startup"          # named so a ModelUnavailable can say where it died
 
     try:
         # ── step 1: parse ─────────────────────────────────────────────────────
         steps += 1
         trace.check_iterations(steps)
+        stage = "parse_query"
         session["parsed"] = parse_query(query)
         trace.step(
             "parse_query",
@@ -213,6 +215,7 @@ def run_agent(query: str, wardrobe: dict) -> dict:
         # ── step 2: search ────────────────────────────────────────────────────
         steps += 1
         trace.check_iterations(steps)
+        stage = "search_listings"
         parsed = session["parsed"]
         results, transport = _search_over_mcp(parsed)
         session["search_results"] = results
@@ -249,6 +252,7 @@ def run_agent(query: str, wardrobe: dict) -> dict:
         # ── step 4: suggest_outfit ────────────────────────────────────────────
         steps += 1
         trace.check_iterations(steps)
+        stage = "suggest_outfit"
         item = session["selected_item"]          # read back OUT of the session
         session["handoff_ids"]["suggest_outfit"] = item.get("id")
         session["outfit_suggestion"] = suggest_outfit(item, session["wardrobe"])
@@ -261,6 +265,7 @@ def run_agent(query: str, wardrobe: dict) -> dict:
         # ── step 5: create_fit_card ───────────────────────────────────────────
         steps += 1
         trace.check_iterations(steps)
+        stage = "create_fit_card"
         outfit = session["outfit_suggestion"]    # read back OUT of the session
         item = session["selected_item"]
         session["handoff_ids"]["create_fit_card"] = item.get("id")
@@ -272,12 +277,27 @@ def run_agent(query: str, wardrobe: dict) -> dict:
         )
 
     except ModelUnavailable as exc:
+        kept = [
+            name
+            for name, value in (
+                ("search_results", session["search_results"]),
+                ("selected_item", session["selected_item"]),
+                ("outfit_suggestion", session["outfit_suggestion"]),
+            )
+            if value
+        ]
         session["error"] = (
-            f"The model couldn't be reached, so I stopped after the search. "
-            f"{exc} Your search results are still in the session; re-run once "
-            f"the key or the network is sorted."
+            f"The model couldn't be reached, so I stopped at {stage}. {exc} "
+            f"Everything finished before that is still in the session "
+            f"({', '.join(kept) or 'nothing'}); re-run once the key or the "
+            f"network is sorted."
         )
-        trace.step("ModelUnavailable", returned=str(exc), note="stopped, no fit card")
+        trace.step(
+            "ModelUnavailable",
+            inputs=f"stage={stage}",
+            returned=str(exc),
+            note="handled: message instead of a stack trace, fit_card stays None",
+        )
 
     return session
 
